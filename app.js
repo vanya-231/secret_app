@@ -3,7 +3,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require('mongoose-encryption');
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
 require('mongoose-type-email');
 mongoose.connect(process.env.MONGO_URI, {useNewUrlParser: true, useUnifiedTopology: true});
 
@@ -18,8 +19,6 @@ const userSchema = new mongoose.Schema({
   password: {type: String, required: true}
 });
 
-userSchema.plugin(encrypt, { secret: process.env.SECRET_KEY, encryptedFields: ["password"] });
-
 const User = new mongoose.model("User", userSchema);
 
 app.route("/")
@@ -32,19 +31,22 @@ app.route("/register")
   res.render("register");
 })
 .post((req, res) => {
-  const userEmail = req.body.username;
-  const userPassword = req.body.password;
-  User.findOne({email: userEmail}, (err, user) => {
-    if (err) return console.log(err);
-    if (!user) {
-      User.create({email: userEmail, password: userPassword}, (err, user) => {
-        if (err) return console.log(err);
-        return res.render("secrets");
-      });
-    } else {
-      return res.send("<h1>User with email " + req.body.username +" already exist. Please login</h1>")
-    }
+  bcrypt.hash(req.body.password, saltRounds, function(err, hash) {
+    const userEmail = req.body.username;
+    const userPassword = hash;
+    User.findOne({email: userEmail}, (err, user) => {
+      if (err) return console.log(err);
+      if (!user) {
+        User.create({email: userEmail, password: userPassword}, (err, user) => {
+          if (err) return console.log(err);
+          return res.render("secrets");
+        });
+      } else {
+        return res.send("<h1>User with email " + req.body.username +" already exist. Please login</h1>")
+      }
+    });
   });
+
 });
 
 app.route("/login")
@@ -58,11 +60,15 @@ app.route("/login")
   User.findOne({email: userEmail}, (err, foundUser) => {
     if (err) return console.log(err);
     if (foundUser) {
-      if (foundUser.password === userPassword) {
-        return res.render("secrets");
-      }
-      return res.send("<h1>Wrong user name or password!</h1>")
-    };
+      bcrypt.compare(userPassword, foundUser.password, function(err, result) {
+        if (result === true) {
+          return res.render("secrets");
+        }
+        return res.send("Wrong password!");
+      });
+    } else {
+      return res.send("User not exist. Please register!");
+    }
   });
 });
 
